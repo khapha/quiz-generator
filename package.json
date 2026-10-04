@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "quiz:generate": "node scripts/generate-quiz.mjs --input \"D:\\download\\Slide-20261004T163849Z-1-001\\Slide\"",
+    "deploy": "node scripts/deploy-gh-pages.mjs",
     "lint": "eslint"
   },
   "dependencies": {
@@ -24,6 +25,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.3.8",
+    "gh-pages": "^6.3.0",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
