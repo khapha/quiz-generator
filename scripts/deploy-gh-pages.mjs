@@ -1,5 +1,5 @@
 import { execSync, spawnSync } from "node:child_process";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import ghpages from "gh-pages";
 
@@ -50,6 +50,10 @@ function walk(dir) {
 }
 walk(join(ROOT, "out"));
 console.log(`Secret scan OK (${scanned} files)`);
+
+// .nojekyll tắt Jekyll trên GitHub Pages — nếu không có, mọi file trong
+// thư mục _next/ sẽ bị bỏ qua (site mất CSS/JS)
+writeFileSync(join(ROOT, "out", ".nojekyll"), "", "utf-8");
 
 ghpages.publish(
   join(ROOT, "out"),
