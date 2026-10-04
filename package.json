@@ -6,12 +6,16 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "quiz:generate": "node scripts/generate-quiz.mjs --input \"D:\\download\\Slide-20261004T163849Z-1-001\\Slide\"",
     "lint": "eslint"
   },
   "dependencies": {
+    "jsonrepair": "^3.15.0",
+    "mammoth": "^1.13.0",
     "next": "16.3.8",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "unpdf": "^1.8.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
