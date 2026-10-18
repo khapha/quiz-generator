@@ -132,17 +132,29 @@ function splitSections(pages) {
 const SYSTEM_PROMPT = `Bạn là chuyên gia xây dựng câu hỏi trắc nghiệm ôn tập từ tài liệu pháp lý và chuyên môn. Bạn tạo câu hỏi bám sát chi tiết tài liệu, kiểm tra đúng kiến thức cốt lõi.`;
 
 function buildUserPrompt(text, heading, docTitle, count) {
-  return `Dựa trên NỘI DUNG dưới đây (trích từ chương "${heading}" của tài liệu "${docTitle}"), tạo đúng ${count} câu hỏi trắc nghiệm.
+  const numMulti = Math.round(count / 3);
+  const numSingle = count - numMulti;
+  return `Dựa trên NỘI DUNG dưới đây (trích từ tài liệu "${docTitle}", phần "${heading}"), tạo đúng ${count} câu hỏi trắc nghiệm: ${numSingle} câu chọn MỘT đáp án và ${numMulti} câu chọn NHIỀU đáp án.
+
+Trọng tâm khai thác — phải bám vào kiến thức chuyên môn CHỨA TRONG NỘI DUNG:
+- Con số cụ thể (liều, nồng độ, tỷ lệ, ngưỡng...), thời hạn, mốc thời gian
+- Điều kiện, tiêu chuẩn, thủ tục, trình tự, phạm vi áp dụng
+- Định nghĩa, phân loại, phân biệt các khái niệm容易 nhầm lẫn
+- Quyền hạn, nghĩa vụ, trách nhiệm, tình huống áp dụng
+- Chấp hành xử lý, nguyên tắc chuyên môn
+
+TUYỆT ĐỐI KHÔNG hỏi về: tiêu đề của tài liệu, tên chương/đề mục, bố cục, số thứ tự, cấu trúc tài liệu, hoặc "văn bản nào quy định điều gì ở mục nào".
+
+Chia đều: khoảng 2/3 câu hỏi chọn MỘT đáp án (answerIndexes có 1 phần tử), 1/3 câu hỏi chọn NHIỀU đáp án (answerIndexes có 2-3 phần tử đúng, câu hỏi phải có tiềnodzie như "Những đáp án nào...", "Chọn các đáp án đúng").
 
 Yêu cầu:
-- Khai thác CHI TIẾT nội dung: các con số, thời hạn, điều kiện, mức mức cụ thể, quyền hạn/nghĩa vụ, định nghĩa, phân loại... đều có thể thành câu hỏi.
-- Mỗi câu có đúng 4 phương án, chỉ 1 đáp án đúng, các phương án nhiễu hợp lý và cùng chủ đề.
-- "source" ghi tên chương/phần mà câu hỏi rút ra.
-- "explanation": giải thích ngắn gọn đáp án đúng, trích dẫn chi tiết từ nội dung.
+- Mỗi câu có 4 phương án, các phương án nhiễu hợp lý và cùng chủ đề.
+- Câu chọn nhiều đáp án PHẢI có ngôn từ rõ ràng để người làm biết cần chọn nhiều (vd: "Trong các phát biểu sau, những phát biểu nào đúng?")
+- "explanation": giải thích ngắn gọn từng đáp án đúng, trích dẫn chi tiết từ nội dung.
 - KHÔNG dùng dấu ngoặc kép " trong nội dung câu hỏi/đáp án/giải thích.
 
 Trả về DUY NHẤT một JSON object theo schema:
-{"questions": [{"question": "...", "options": ["...","...","...","..."], "answerIndex": 0, "explanation": "...", "source": "${heading}"}]}
+{"questions": [{"question": "...", "options": ["...","...","...","..."], "answerIndexes": [0], "explanation": "...", "source": "${heading}"}]}
 
 NỘI DUNG:
 """
@@ -163,20 +175,27 @@ function extractQuestions(content) {
   }
   if (!Array.isArray(parsed.questions)) throw new Error("missing questions array");
   return parsed.questions
-    .map((q) => ({
-      question: String(q.question ?? "").trim(),
-      options: Array.isArray(q.options) ? q.options.map((o) => String(o).trim()) : [],
-      answerIndex: Number(q.answerIndex),
-      explanation: String(q.explanation ?? "").trim(),
-      source: String(q.source ?? "").trim(),
-    }))
+    .map((q) => {
+      // Nhận cả schema mới (answerIndexes) và schema cũ (answerIndex)
+      let arr = Array.isArray(q.answerIndexes)
+        ? q.answerIndexes
+        : [Number(q.answerIndex)];
+      arr = [...new Set(arr)]
+        .filter((n) => Number.isInteger(n) && n >= 0 && n < (q.options?.length ?? 0))
+        .map(Number);
+      return {
+        question: String(q.question ?? "").trim(),
+        options: Array.isArray(q.options) ? q.options.map((o) => String(o).trim()) : [],
+        answerIndexes: arr,
+        explanation: String(q.explanation ?? "").trim(),
+        source: String(q.source ?? "").trim(),
+      };
+    })
     .filter(
       (q) =>
         q.question.length > 5 &&
         q.options.length >= 2 &&
-        Number.isInteger(q.answerIndex) &&
-        q.answerIndex >= 0 &&
-        q.answerIndex < q.options.length
+        q.answerIndexes.length > 0
     );
 }
 

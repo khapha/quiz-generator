@@ -26,6 +26,12 @@ function shuffle<T>(arr: T[]): T[] {
   return copy;
 }
 
+function setsEqual(a: number[], b: number[]): boolean {
+  const sa = [...a].sort((x, y) => x - y);
+  const sb = [...b].sort((x, y) => x - y);
+  return sa.length === sb.length && sa.every((v, i) => v === sb[i]);
+}
+
 function Chip({ children }: { children: React.ReactNode }) {
   return (
     <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600 shadow-sm">
@@ -70,7 +76,9 @@ export default function QuizHome({ decks }: { decks: DeckMeta[] }) {
   const [phase, setPhase] = useState<Phase>("browse");
   const [quiz, setQuiz] = useState<Quiz | null>(null);
   const [order, setOrder] = useState<number[]>([]);
-  const [answers, setAnswers] = useState<(number | null)[]>([]);
+  // answer: mảng index đã chọn (1 phần tử = single, nhiều = multi)
+  const [answers, setAnswers] = useState<number[][]>([]);
+  const [revealed, setRevealed] = useState<boolean[]>([]);
   const [shuffled, setShuffled] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -81,17 +89,22 @@ export default function QuizHome({ decks }: { decks: DeckMeta[] }) {
       const res = await fetch(withBase(`/quizzes/${deck.id}.json`));
       if (!res.ok) throw new Error(`Không tải được bộ đề (HTTP ${res.status})`);
       const data = (await res.json()) as Quiz;
-      const order0 = data.questions.map((_, i) => i);
-      setQuiz(data);
-      setOrder(doShuffle ? shuffle(order0) : order0);
-      setShuffled(doShuffle);
-      setAnswers(Array.from({ length: data.questions.length }, () => null));
-      setPhase("quiz");
-      window.scrollTo(0, 0);
+      startQuiz(data, doShuffle);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Đã xảy ra lỗi.");
       setPhase("error");
     }
+  }
+
+  function startQuiz(data: Quiz, doShuffle: boolean) {
+    const seq = data.questions.map((_, i) => i);
+    setQuiz(data);
+    setOrder(doShuffle ? shuffle(seq) : seq);
+    setAnswers(Array.from({ length: data.questions.length }, () => []));
+    setRevealed(Array.from({ length: data.questions.length }, () => false));
+    setShuffled(doShuffle);
+    setPhase("quiz");
+    window.scrollTo(0, 0);
   }
 
   const toggleShuffle = useCallback(() => {
@@ -110,6 +123,11 @@ export default function QuizHome({ decks }: { decks: DeckMeta[] }) {
     window.scrollTo(0, 0);
   }
 
+  function restart(doShuffle: boolean) {
+    if (!quiz) return;
+    startQuiz(quiz, doShuffle);
+  }
+
   if (phase === "browse") {
     const total = decks.reduce((s, d) => s + d.count, 0);
     return (
@@ -124,7 +142,7 @@ export default function QuizHome({ decks }: { decks: DeckMeta[] }) {
           <div className="flex flex-wrap justify-center gap-2 pt-1">
             <Chip>{decks.length} bộ đề</Chip>
             <Chip>{total.toLocaleString("vi-VN")} câu hỏi</Chip>
-            <Chip>Giải thích chi tiết</Chip>
+            <Chip>Hiện đáp án sau mỗi câu</Chip>
           </div>
         </section>
 
@@ -180,65 +198,122 @@ export default function QuizHome({ decks }: { decks: DeckMeta[] }) {
   }
 
   if (phase === "quiz" && quiz) {
-    const answered = answers.filter((a) => a !== null).length;
-    const allDone = answered === quiz.questions.length;
+    const doneCount = revealed.filter(Boolean).length;
+    const allDone = doneCount === quiz.questions.length;
+
     return (
       <div className="w-full max-w-3xl space-y-5 pb-20">
         <div className="sticky top-[60px] z-10 rounded-2xl border border-slate-200 bg-white/95 p-4 shadow-sm backdrop-blur">
           <div className="flex items-center justify-between gap-4">
             <h1 className="truncate font-semibold text-slate-800">{quiz.title}</h1>
             <span className="shrink-0 text-sm text-slate-500">
-              {answered}/{quiz.questions.length}
+              {doneCount}/{quiz.questions.length}
             </span>
           </div>
           <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
             <div
               className="h-full rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 transition-all duration-300"
-              style={{ width: `${(answered / quiz.questions.length) * 100}%` }}
+              style={{ width: `${(doneCount / quiz.questions.length) * 100}%` }}
             />
           </div>
-          <button
-            onClick={toggleShuffle}
-            className={`mt-3 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-              shuffled
-                ? "border-blue-600 bg-blue-50 text-blue-700"
-                : "border-slate-300 bg-white text-slate-500 hover:border-slate-400"
-            }`}
-          >
-            🔀 {shuffled ? "Đang xáo trộn — bấm để về thứ tự gốc" : "Xáo trộn câu hỏi"}
-          </button>
+          <div className="flex items-center gap-2 pt-3">
+            <button
+              onClick={toggleShuffle}
+              className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                shuffled
+                  ? "border-blue-600 bg-blue-50 text-blue-700"
+                  : "border-slate-300 bg-white text-slate-500 hover:border-slate-400"
+              }`}
+            >
+              🔒 Câu hỏi xáo trộn: {shuffled ? "BẬT" : "TẮT"}
+            </button>
+            {allDone && (
+              <button
+                onClick={() => {
+                  setPhase("result");
+                  window.scrollTo(0, 0);
+                }}
+                className="pointer-events-none ml-auto rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-1 text-xs font-bold text-white shadow-sm"
+              >
+                ✓ Hoàn thành — xem tổng kết
+              </button>
+            )}
+          </div>
         </div>
 
         {order.map((qi, position) => {
           const q = quiz.questions[qi];
+          const ans = answers[qi] ?? [];
+          const isRevealed = revealed[qi];
+          const isMulti = q.answerIndexes.length > 1;
+          const isCorrect = setsEqual(ans, q.answerIndexes);
+
           return (
-            <div key={q.id} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-              <p className="font-medium leading-relaxed text-slate-800">
-                <span className="mr-2 rounded-md bg-blue-50 px-2 py-0.5 text-sm font-bold text-blue-700">
+            <div
+              key={q.id}
+              className={`rounded-2xl border bg-white p-6 shadow-sm transition-colors ${
+                !isRevealed
+                  ? "border-slate-200"
+                  : isCorrect
+                    ? "border-emerald-200"
+                    : "border-rose-200"
+              }`}
+            >
+              <div className="flex flex-wrap items-start gap-2">
+                <span className="rounded-md bg-blue-50 px-2 py-0.5 text-sm font-bold text-blue-700">
                   {position + 1}
                 </span>
-                {q.question}
-              </p>
+                <p className="flex-1 font-medium leading-relaxed text-slate-800">{q.question}</p>
+                {isMulti && (
+                  <span className="shrink-0 rounded-full bg-violet-50 px-2.5 py-1 text-[11px] font-semibold text-violet-600">
+                    Chọn nhiều đáp án
+                  </span>
+                )}
+              </div>
               <div className="mt-4 grid gap-2">
                 {q.options.map((opt, oi) => {
-                  const selected = answers[qi] === oi;
+                  const picked = ans.includes(oi);
+                  const showCorrect = isRevealed && q.answerIndexes.includes(oi);
+                  const showWrongPick = isRevealed && picked && !q.answerIndexes.includes(oi);
                   return (
                     <button
                       key={oi}
-                      onClick={() =>
-                        setAnswers((prev) => prev.map((a, i) => (i === qi ? oi : a)))
-                      }
+                      disabled={isRevealed}
+                      onClick={() => {
+                        if (isMulti) {
+                          setAnswers((prev) =>
+                            prev.map((a, i) =>
+                              i === qi ? (a.includes(oi) ? a.filter((x) => x !== oi) : [...a, oi]) : a
+                            )
+                          );
+                        } else {
+                          setAnswers((prev) => prev.map((a, i) => (i === qi ? [oi] : a)));
+                          setRevealed((prev) => prev.map((r, i) => (i === qi ? true : r)));
+                        }
+                      }}
                       className={`flex items-start gap-3 rounded-xl border px-4 py-3 text-left text-sm transition-all ${
-                        selected
-                          ? "border-blue-600 bg-blue-50 font-medium text-blue-900 ring-1 ring-blue-600"
-                          : "border-slate-200 text-slate-700 hover:border-blue-300 hover:bg-slate-50"
+                        showCorrect
+                          ? "border-emerald-500 bg-emerald-50 font-medium text-emerald-900"
+                          : showWrongPick
+                            ? "border-rose-400 bg-rose-50 text-rose-900 line-through"
+                            : picked
+                              ? "border-blue-600 bg-blue-50 font-medium text-blue-900 ring-1 ring-blue-600"
+                              : isRevealed
+                                ? "border-slate-200 text-slate-500"
+                                : "border-slate-200 text-slate-700 hover:border-blue-300 hover:bg-slate-50"
                       }`}
                     >
                       <span
-                        className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
-                          selected
-                            ? "bg-blue-600 text-white"
-                            : "bg-slate-100 text-slate-600"
+                        className={`flex h-6 w-6 shrink-0 items-center justify-center text-xs font-semibold ${
+                          isMulti ? "rounded-md" : "rounded-full"
+                        } ${
+                          showCorrect
+                            ? "bg-emerald-600 text-white"
+                            : showWrongPick
+                              ? "bg-rose-500 text-white"
+                              : picked
+                                ? "bg-blue-600 text-white"
+                                : "bg-slate-100 text-slate-600"
                         }`}
                       >
                         {LETTERS[oi]}
@@ -248,37 +323,72 @@ export default function QuizHome({ decks }: { decks: DeckMeta[] }) {
                   );
                 })}
               </div>
+
+              {!isRevealed && isMulti && ans.length > 0 && (
+                <button
+                  onClick={() => setRevealed((prev) => prev.map((r, i) => (i === qi ? true : r)))}
+                  className="mt-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-opacity hover:opacity-90"
+                >
+                  Kiểm tra đáp án ({ans.length} lựa chọn)
+                </button>
+              )}
+
+              {isRevealed && (
+                <div className="mt-4 space-y-2 border-t border-slate-100 pt-3">
+                  <p
+                    className={`flex items-center gap-1.5 text-sm font-bold ${
+                      isCorrect ? "text-emerald-600" : "text-rose-600"
+                    }`}
+                  >
+                    {isCorrect ? "✓ Chính xác!" : "✗ Chưa đúng"}
+                    {isMulti && (
+                      <span className="font-normal text-slate-400">
+                        (Đáp án đúng:{" "}
+                        {[...q.answerIndexes].sort().map((i) => LETTERS[i]).join(", ")})
+                      </span>
+                    )}
+                  </p>
+                  {q.explanation && (
+                    <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm leading-relaxed text-slate-600">
+                      <span className="font-medium text-slate-700">Giải thích: </span>
+                      {q.explanation}
+                    </p>
+                  )}
+                  {q.source && <p className="px-1 text-xs text-slate-400">Nguồn: {q.source}</p>}
+                </div>
+              )}
             </div>
           );
         })}
 
-        <div className="fixed inset-x-0 bottom-0 border-t border-slate-200 bg-white/95 p-3 backdrop-blur">
-          <div className="mx-auto flex max-w-3xl gap-3 px-4">
-            <button
-              onClick={backToBrowse}
-              className="rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-medium shadow-sm hover:bg-slate-50"
-            >
-              ← Danh sách đề
-            </button>
-            <button
-              onClick={() => {
-                setPhase("result");
-                window.scrollTo(0, 0);
-              }}
-              disabled={!allDone}
-              className="flex-1 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-3 font-semibold text-white shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {allDone ? "Nộp bài" : `Còn ${quiz.questions.length - answered} câu chưa trả lời`}
-            </button>
+        {allDone && (
+          <div className="fixed inset-x-0 bottom-0 border-t border-slate-200 bg-white/95 p-3 backdrop-blur">
+            <div className="mx-auto flex max-w-3xl gap-3 px-4">
+              <button
+                onClick={backToBrowse}
+                className="rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-medium shadow-sm hover:bg-slate-50"
+              >
+                ← Danh sách đề
+              </button>
+              <button
+                onClick={() => {
+                  setPhase("result");
+                  window.scrollTo(0, 0);
+                }}
+                className="flex-1 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-3 font-semibold text-white shadow-sm transition-opacity hover:opacity-90"
+              >
+                Xem kết quả tổng kết
+              </button>
+            </div>
           </div>
-        </div>
+        )}
       </div>
     );
   }
 
   if (phase === "result" && quiz) {
     const score = quiz.questions.reduce(
-      (sum, q, qi) => sum + (answers[qi] === q.answerIndex ? 1 : 0),
+      (sum, _, qi) => sum + (setsEqual(answers[qi] ?? [], quiz.questions[qi].answerIndexes) ? 1 : 0),
       0
     );
     const percent = Math.round((score / quiz.questions.length) * 100);
@@ -306,9 +416,31 @@ export default function QuizHome({ decks }: { decks: DeckMeta[] }) {
           </div>
         </div>
 
+        <div className="flex flex-wrap gap-3 pt-2">
+          <button
+            onClick={() => restart(false)}
+            className="flex-1 rounded-xl border border-slate-300 bg-white px-4 py-3 font-medium shadow-sm hover:bg-slate-50"
+          >
+            Làm lại
+          </button>
+          <button
+            onClick={() => restart(true)}
+            className="flex-1 rounded-xl border border-slate-300 bg-white px-4 py-3 font-medium shadow-sm hover:bg-slate-50"
+          >
+            🔀 Làm lại (xáo trộn)
+          </button>
+          <button
+            onClick={backToBrowse}
+            className="flex-1 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-3 font-semibold text-white shadow-sm hover:opacity-90"
+          >
+            Chọn đề khác
+          </button>
+        </div>
+
         {quiz.questions.map((q, qi) => {
-          const userAnswer = answers[qi];
-          const correct = userAnswer === q.answerIndex;
+          const ans = answers[qi] ?? [];
+          const correct = setsEqual(ans, q.answerIndexes);
+          const isMulti = q.answerIndexes.length > 1;
           return (
             <div
               key={q.id}
@@ -318,17 +450,24 @@ export default function QuizHome({ decks }: { decks: DeckMeta[] }) {
             >
               <p className="font-medium leading-relaxed text-slate-800">
                 <span className="mr-1.5">{correct ? "✅" : "❌"}</span>
-                Câu {qi + 1}. {q.question}
+                Câu {qi + 1}.
+                {isMulti && (
+                  <span className="ml-1.5 rounded-full bg-violet-50 px-2 py-0.5 align-middle text-[11px] font-semibold text-violet-600">
+                    Chọn nhiều
+                  </span>
+                )}
+                <br />
+                {q.question}
               </p>
               <div className="mt-3 grid gap-1.5 text-sm">
                 {q.options.map((opt, oi) => {
-                  const isCorrect = oi === q.answerIndex;
-                  const isUserPick = oi === userAnswer;
+                  const isAnswer = q.answerIndexes.includes(oi);
+                  const isUserPick = ans.includes(oi);
                   return (
                     <div
                       key={oi}
                       className={`flex items-start gap-2 rounded-lg px-3 py-2 ${
-                        isCorrect
+                        isAnswer
                           ? "bg-emerald-50 font-medium text-emerald-900"
                           : isUserPick
                             ? "bg-rose-50 text-rose-900 line-through"
@@ -337,9 +476,6 @@ export default function QuizHome({ decks }: { decks: DeckMeta[] }) {
                     >
                       <span className="font-semibold">{LETTERS[oi]}.</span>
                       <span>{opt}</span>
-                      {isUserPick && !isCorrect && (
-                        <span className="ml-auto shrink-0 text-xs text-rose-500">bạn chọn</span>
-                      )}
                     </div>
                   );
                 })}
@@ -354,36 +490,6 @@ export default function QuizHome({ decks }: { decks: DeckMeta[] }) {
             </div>
           );
         })}
-
-        <div className="flex flex-wrap gap-3 pt-2">
-          <button
-            onClick={() => {
-              setAnswers(Array.from({ length: quiz.questions.length }, () => null));
-              setPhase("quiz");
-              window.scrollTo(0, 0);
-            }}
-            className="flex-1 rounded-xl border border-slate-300 bg-white px-4 py-3 font-medium shadow-sm hover:bg-slate-50"
-          >
-            Làm lại
-          </button>
-          <button
-            onClick={() =>
-              openDeck(
-                { id: quiz.id, title: quiz.title, count: quiz.questions.length },
-                true
-              )
-            }
-            className="flex-1 rounded-xl border border-slate-300 bg-white px-4 py-3 font-medium shadow-sm hover:bg-slate-50"
-          >
-            🔀 Làm lại (xáo trộn)
-          </button>
-          <button
-            onClick={backToBrowse}
-            className="flex-1 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-3 font-semibold text-white shadow-sm hover:opacity-90"
-          >
-            Chọn đề khác
-          </button>
-        </div>
       </div>
     );
   }

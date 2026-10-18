@@ -2,7 +2,7 @@ export type QuizQuestion = {
   id: number;
   question: string;
   options: string[];
-  answerIndex: number;
+  answerIndexes: number[];
   explanation: string;
   source: string;
 };
